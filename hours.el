@@ -4,12 +4,19 @@
       hours-date  "\\<\\(\\(20[0-9][0-9]\\)[-/]\\([0-9][0-9]\\)?[-/]\\([0-9][0-9]?\\)\\)\\>"
       hours-day   "\\<\\(Sun\\|Mon\\|Tue\\|Wed\\|Thu\\|Fri\\|Sat\\)\\>"
       hours-hours "\\<\\([0-9]+\\(?:\\.[0-9]+\\)?\\)\\>")
+(setq hours-separator-re " +->? +")
+(setq hours-partial-interval
+      (concat hours-time hours-separator-re hours-time))
 (setq hours-interval
-      (concat hours-time " +->? +" hours-time " +" hours-hours))
+      (concat hours-partial-interval " +" hours-hours))
 (setq hours-date-day
       (concat hours-date " +" hours-day))
 (setq hours-outline-regexp
       (concat "\\(^\\(?:[-+]* *Invoice +\\)?" hours-date "\\)"))
+(setq hours-prefix "")
+(setq hours-invoice-prefix "")
+(setq hours-separator " - ")
+(setq hours-round-minutes 15)
 
 (defun hours-check-date (date)
   (hours-date-is-legal-p (hours-date-from-string date)))
@@ -18,10 +25,14 @@
   (and (hours-date-is-legal-p date)
        (do-unless (equal day (calendar-day-name date 3))
          (message "%s should be %s." day (calendar-day-name date 3)))))
+(defun hours-get-interval (time1 time2)
+    (let* ((interval (- (hours-time-in-minutes time2) (hours-time-in-minutes time1))))
+      (if (<= interval 0) (setq interval (+ interval (* 24 60))))
+	  interval))
+
 (defun hours-check-interval (time1 time2 hours)
     (let* ((minutes (* (string-to-number hours) 60))
-           (interval (- (hours-time-in-minutes time2) (hours-time-in-minutes time1))))
-      (if (<= interval 0) (setq interval (+ interval (* 24 60))))
+           (interval (hours-get-interval time1 time2)))
       (do-unless (= interval minutes)
         (message "%s should be %s." (/ (float minutes) 60) (/ (float interval) 60)))))
 
@@ -53,6 +64,9 @@
 
 (easy-mmode-defmap hours-mode-map
   `(("\C-cd" . hours-insert-current-date)
+	("\C-ct" . hours-insert-current-date-time)
+	("\C-c\C-t" . (lambda () (interactive) (hours-end-day) (hours-compute)))
+	("\C-c=" . hours-compute)
     ("\C-ci" . hours-invoice)
     ("\C-c`" . hours-next-error))
   "Keymap for `hours-mode'.")
@@ -86,7 +100,36 @@
     (when error-location
       (goto-char error-location)
       (error "Illegal entry found" ))
-    (insert "Invoice ") (hours-insert-current-date) (insert (format " %s Hours\n" total))))
+    (insert hours-invoice-prefix"Invoice ") (hours-insert-current-date) (insert (format " %s Hours\n" total))))
+
+(defun hours-end-day () (interactive)
+  (let (error-location (bound (point)))
+    (save-excursion
+	  (do-unless
+		  (and (re-search-backward "^\\S ")
+			   (goto-char (match-beginning 0))
+			   (looking-at (concat "\\(?:[-+]+ +\\)?" hours-date-day " +" (concat hours-time hours-separator-re)))
+			   (goto-char (match-end 0))
+			   (or (hours-insert-current-time) t))
+		(setq error-location (point))))
+	(when error-location
+	  (goto-char error-location)
+	  (error "Illegal entry found" ))))
+
+(defun hours-compute () (interactive)
+  (let (error-location (bound (point)))
+    (save-excursion
+	  (do-unless
+		  (and (re-search-backward "^\\S ")
+			   (goto-char (match-beginning 0))
+			   (looking-at (concat "\\(?:[-+]+ +\\)?" hours-date-day " +" hours-partial-interval))
+			   (save-match-data (hours-check-day (match-string 1) (match-string 5)))
+			   (goto-char (match-end 0))
+			   (save-match-data (or (insert (format " %s" (/ (float (hours-get-interval (match-string 6) (match-string 7))) 60))) t)))
+		(setq error-location (point))))
+	(when error-location
+	  (goto-char error-location)
+	  (error "Illegal entry found" ))))
 
 (defun hours-date-is-legal-p (date)
   (and date (calendar-date-is-legal-p date)))
@@ -127,8 +170,26 @@
 ;;(calendar-current-date)
 
 (defun hours-insert-current-date () (interactive)
-  (let ((today (calendar-current-date)))
-    (insert (hours-format-date today) " " (calendar-day-name today 3)) " "))
+  (insert (format-time-string "%Y/%m/%d %a ")))
+
+(defun hours-insert-current-time () (interactive)
+  (let* ((mil (diary-entry-time (format-time-string "%H:%M")))
+		 (m (% mil 100))
+		 (r (* (floor (/ (+ (float m) (/ (float hours-round-minutes) 2)) hours-round-minutes)) hours-round-minutes))
+		 (h (% (+ (/ mil 100) (if (>= r 60) 1 0)) 24))
+		 (M (if (>= r 60) (- r 60) r))
+		 (P (if (>= h 12) "pm" "am"))
+		 (H (if (>  h 12) (- h 12) (if (= h 0) 12 h))))
+	(insert (format "%2d:%02d%s" H M P))))
+
+;(defun hours-insert-current-time () (interactive)
+;  (insert (format-time-string "%l:%M%#p")))
+
+(defun hours-insert-current-date-time () (interactive)
+  (insert hours-prefix)
+  (hours-insert-current-date)
+  (hours-insert-current-time)
+  (insert hours-separator))
 
 (defun hours-next-date () 
   (interactive) 
