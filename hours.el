@@ -71,8 +71,8 @@
 (defun hours-invoice () (interactive)
   (let ((total 0) error-location (bound (point)))
     (save-excursion
-      (re-search-backward "^Invoice\\> .*$")
-      (goto-char (1+ (match-end 0)))
+      (if (re-search-backward "^Invoice\\> .*$" nil 'noerror)
+          (goto-char (1+ (match-end 0))))
       (while  ; a line that doesn't start with a space should be an entry
           (and (re-search-forward "^\\S " bound 'noerror)
                (do-unless
