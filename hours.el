@@ -9,7 +9,7 @@
 (setq hours-date-day
       (concat hours-date " +" hours-day))
 (setq hours-outline-regexp
-      (concat "\\(^\\(?:Invoice +\\)?" hours-date "\\)"))
+      (concat "\\(^\\(?:[-+]* *Invoice +\\)?" hours-date "\\)"))
 
 (defun hours-check-date (date)
   (hours-date-is-legal-p (hours-date-from-string date)))
@@ -40,7 +40,7 @@
          (3 (if (hours-check-interval (match-string 1) (match-string 2) (match-string 3))
                 hours-interval-face
               font-lock-warning-face)))
-        ("^Invoice\\>\\|\\<Hours *$" . hours-invoice-face)
+        ("^\\(?:[-+]+ *\\)?Invoice\\>\\|\\<Hours *$" . hours-invoice-face)
         (,hours-date
          (1 (if (hours-check-date (match-string 0))
                 hours-date-face
@@ -70,14 +70,14 @@
 (defun hours-invoice () (interactive)
   (let ((total 0) error-location (bound (point)))
     (save-excursion
-      (re-search-backward "^Invoice\\> .*$")
+      (re-search-backward "^\\(?:[-+]+ *\\)?Invoice\\> .*$")
       (goto-char (1+ (match-end 0)))
       (while  ; a line that doesn't start with a space should be an entry
           (and (re-search-forward "^\\S " bound 'noerror)
                (do-unless
                    (and
                     (goto-char (match-beginning 0))
-                    (looking-at (concat "\\(?:---\\+ +\\)?" hours-date-day " +" hours-interval))
+                    (looking-at (concat "\\(?:[-+]+ +\\)?" hours-date-day " +" hours-interval))
                     (save-match-data (hours-check-day (match-string 1) (match-string 5)))
                     (save-match-data (hours-check-interval (match-string 6) (match-string 7) (match-string 8)))
                     (goto-char (match-end 0)))
