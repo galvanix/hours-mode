@@ -65,6 +65,7 @@
 (easy-mmode-defmap hours-mode-map
   `(("\C-cd" . hours-insert-current-date)
 	("\C-ct" . hours-insert-current-date-time)
+	("\C-c\C-c" . (lambda () (interactive) (hours-end-day) (hours-compute)))
 	("\C-c\C-t" . (lambda () (interactive) (hours-end-day) (hours-compute)))
 	("\C-c=" . hours-compute)
     ("\C-ci" . hours-invoice)
