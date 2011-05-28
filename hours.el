@@ -88,7 +88,7 @@
       (when (re-search-backward "^\\(?:[-+]+ *\\)?Invoice\\> .*$" nil 'noerror)
         (goto-char (1+ (match-end 0))))
       (while  ; a line that doesn't start with a space should be an entry
-          (and (re-search-forward "^\\S " bound 'noerror)
+          (and (re-search-forward "^[^# \t\n]" bound 'noerror)
                (do-unless
                    (and
                     (goto-char (match-beginning 0))
@@ -107,7 +107,7 @@
   (let (error-location (bound (point)))
     (save-excursion
 	  (do-unless
-		  (and (re-search-backward "^\\S ")
+		  (and (re-search-backward "^[^# \t\n]")
 			   (goto-char (match-beginning 0))
 			   (looking-at (concat "\\(?:[-+]+ +\\)?" hours-date-day " +" (concat hours-time hours-separator-re)))
 			   (goto-char (match-end 0))
@@ -121,7 +121,7 @@
   (let (error-location (bound (point)))
     (save-excursion
 	  (do-unless
-		  (and (re-search-backward "^\\S ")
+		  (and (re-search-backward "^[^# \t\n]")
 			   (goto-char (match-beginning 0))
 			   (looking-at (concat "\\(?:[-+]+ +\\)?" hours-date-day " +" hours-partial-interval))
 			   (save-match-data (hours-check-day (match-string 1) (match-string 5)))
