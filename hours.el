@@ -37,7 +37,8 @@
         (message "%s should be %s." (/ (float minutes) 60) (/ (float interval) 60)))))
 
 (setq hours-font-lock-keywords
-      `((,hours-date-day
+      `(("^\\S *#.*$" . font-lock-comment-face)
+        (,hours-date-day
          (1 (if (save-match-data
                   (hours-check-date (match-string 1)))
                 hours-interval-face
