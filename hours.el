@@ -84,21 +84,22 @@
 ;;   nil " Hours" nil)
 
 (defun hours-invoice () (interactive)
-  (let ((total 0) error-location (bound (point)))
+  (let ((total 0) error-location (bound (point)) done)
     (save-excursion
-      (when (re-search-backward "^\\(?:[-+]+ *\\)?Invoice\\> .*$" nil 'noerror)
-        (goto-char (1+ (match-end 0))))
       (while  ; a line that doesn't start with a space should be an entry
-          (and (re-search-forward "^[^# \t\n]" bound 'noerror)
+          (and (not done)
+               (re-search-backward "^[^# \t\n]" nil 'noerror)
                (do-unless
                    (and
                     (goto-char (match-beginning 0))
-                    (looking-at (concat "\\(?:[-+]+ +\\)?" hours-date-day " +" hours-interval))
-                    (save-match-data (hours-check-day (match-string 1) (match-string 5)))
-                    (save-match-data (hours-check-interval (match-string 6) (match-string 7) (match-string 8)))
-                    (goto-char (match-end 0)))
-                 (setq error-location (point))))
-        (setq total (+ total (string-to-number (match-string 8))))))
+                    (cond ((looking-at "^\\(?:[-+]+ *\\)?Invoice\\> .*$")
+                           (setq done t))
+                          ((looking-at (concat "\\(?:[-+]+ +\\)?" hours-date-day " +" hours-interval))
+                           (save-match-data (hours-check-day (match-string 1) (match-string 5)))
+                           (save-match-data (hours-check-interval (match-string 6) (match-string 7) (match-string 8)))
+                           (setq total (+ total (string-to-number (match-string 8))))
+                           )))
+                 (setq error-location (point))))))
     (when error-location
       (goto-char error-location)
       (error "Illegal entry found" ))
