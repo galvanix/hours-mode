@@ -3,13 +3,23 @@
 (setq hours-time  "\\<\\([0-9][0-9]?:[0-9][0-9]\\(?:am\\|pm\\)\\)\\>"
       hours-date  "\\<\\(\\(20[0-9][0-9]\\)[-/]\\([0-9][0-9]\\)?[-/]\\([0-9][0-9]?\\)\\)\\>"
       hours-day   "\\<\\(Sun\\|Mon\\|Tue\\|Wed\\|Thu\\|Fri\\|Sat\\)\\>"
-      hours-hours "\\<\\([0-9]+\\(?:\\.[0-9]+\\)?\\)\\>")
+      hours-hours "\\<\\([0-9]+\\(?:\\.[0-9]+\\)?\\)\\>"
+      hours-tags  ":\\([^:]+\\):")
+(setq hours-separator " - ")
+(setq hours-separator-re " +- +")
+(setq hours-partial-interval
+      (concat hours-time hours-separator-re hours-time))
 (setq hours-interval
-      (concat hours-time " +->? +" hours-time " +" hours-hours))
+      (concat hours-partial-interval " +" hours-hours))
 (setq hours-date-day
       (concat hours-date " +" hours-day))
 (setq hours-outline-regexp
       (concat "\\(^\\(?:Invoice +\\)?" hours-date "\\)"))
+(setq hours-prefix "")
+(setq hours-invoice-prefix "")
+(setq hours-round-minutes 15)
+(setq hours-possible-tags
+      (concat "\\(?: +" hours-tags "\\)?"))
 
 (defun hours-check-date (date)
   (hours-date-is-legal-p (hours-date-from-string date)))
@@ -18,15 +28,20 @@
   (and (hours-date-is-legal-p date)
        (do-unless (equal day (calendar-day-name date 3))
          (message "%s should be %s." day (calendar-day-name date 3)))))
+(defun hours-get-interval (time1 time2)
+    (let* ((interval (- (hours-time-in-minutes time2) (hours-time-in-minutes time1))))
+      (if (<= interval 0) (setq interval (+ interval (* 24 60))))
+	  interval))
+
 (defun hours-check-interval (time1 time2 hours)
     (let* ((minutes (* (string-to-number hours) 60))
-           (interval (- (hours-time-in-minutes time2) (hours-time-in-minutes time1))))
-      (if (<= interval 0) (setq interval (+ interval (* 24 60))))
+           (interval (hours-get-interval time1 time2)))
       (do-unless (= interval minutes)
         (message "%s should be %s." (/ (float minutes) 60) (/ (float interval) 60)))))
 
 (setq hours-font-lock-keywords
-      `((,hours-date-day
+      `(("^\\S *#.*$" . font-lock-comment-face)
+        (,hours-date-day
          (1 (if (save-match-data
                   (hours-check-date (match-string 1)))
                 hours-interval-face
@@ -40,19 +55,29 @@
          (3 (if (hours-check-interval (match-string 1) (match-string 2) (match-string 3))
                 hours-interval-face
               font-lock-warning-face)))
-        ("^Invoice\\>\\|\\<Hours *$" . hours-invoice-face)
+        (,(concat "^\\(Invoice\\>\\).*\\(\\<Hours\\)")
+         (1 hours-invoice-face)
+         (2 hours-invoice-face))
         (,hours-date
          (1 (if (hours-check-date (match-string 0))
                 hours-date-face
               font-lock-warning-face)))
         (,hours-day     . hours-day-face)
-        (,hours-time    . hours-time-face)))
+        (,hours-time    . hours-time-face)
+        (,(concat "\\(?:" hours-interval "\\|" "^Invoice.* +Hours" "\\)" " +\\(:\\)")
+         (4 font-lock-keyword-face)
+         ("\\([^:,]+\\)\\([,:]\\)" nil nil (1 font-lock-string-face)
+                                           (2 font-lock-keyword-face)))))
 
 (setq hours-font-lock-defaults
       '(hours-font-lock-keywords t nil nil nil (font-lock-multiline . nil)))
 
 (easy-mmode-defmap hours-mode-map
   `(("\C-cd" . hours-insert-current-date)
+	("\C-ct" . hours-insert-current-date-time)
+	("\C-c\C-c" . (lambda () (interactive) (hours-end-day) (hours-compute)))
+	("\C-c\C-t" . (lambda () (interactive) (hours-end-day) (hours-compute)))
+	("\C-c=" . hours-compute)
     ("\C-ci" . hours-invoice)
     ("\M-\r" . hours-toggle-entry)
     ("\C-c`" . hours-next-error))
@@ -68,26 +93,76 @@
 ;; \\{hours-minor-mode-map}"
 ;;   nil " Hours" nil)
 
+(defun plist-keys (plist)
+  "Return the keys of PLIST that have non-null values, in order."
+  (assert (zerop (mod (length plist) 2)) t)
+  (loop for (key value . rest) on plist by #'cddr
+        unless (or (null value) (memq key accu)) collect key into accu
+        finally (return accu)))
+
 (defun hours-invoice () (interactive)
-  (let ((total 0) error-location (bound (point)))
+  (let (total error-location (bound (point)))
     (save-excursion
-      (if (re-search-backward "^Invoice\\> .*$" nil 'noerror)
-          (goto-char (1+ (match-end 0))))
       (while  ; a line that doesn't start with a space should be an entry
-          (and (re-search-forward "^\\S " bound 'noerror)
+          (and (or (eq total nil)
+                   (memq 'open (mapcar (lambda (e) (or (stringp e) (car e))) total)))
+               (re-search-backward "^[^# \t\n]" nil 'noerror)
                (do-unless
                    (and
                     (goto-char (match-beginning 0))
-                    (looking-at (concat "\\(?:---\\+ +\\)?" hours-date-day " +" hours-interval))
-                    (save-match-data (hours-check-day (match-string 1) (match-string 5)))
-                    (save-match-data (hours-check-interval (match-string 6) (match-string 7) (match-string 8)))
-                    (goto-char (match-end 0)))
-                 (setq error-location (point))))
-        (setq total (+ total (string-to-number (match-string 8))))))
+                    (cond ((looking-at (concat "^Invoice\\>.*\\<Hours" hours-possible-tags))
+                           (let ((tags (split-string (or (match-string 1) "") ",")))
+                             (dolist (tag tags t)
+                               (if (not (eq 'closed (car (lax-plist-get total tag))))
+                                   (setq total (lax-plist-put total tag (list 'closed (cadr (lax-plist-get total tag)))))))))
+                          ((looking-at (concat hours-date-day " +" hours-interval hours-possible-tags))
+                           (save-match-data (hours-check-day (match-string 1) (match-string 5)))
+                           (save-match-data (hours-check-interval (match-string 6) (match-string 7) (match-string 8)))
+                           (let ((tags (save-match-data (split-string (or (match-string 9) "") ","))))
+                             (dolist (tag tags t)
+                               (if (not (eq 'closed (car (lax-plist-get total tag))))
+                                   (setq total (lax-plist-put total tag (list 'open (+ (or (cadr (lax-plist-get total tag)) 0)
+                                                                                       (/ (float (string-to-number (match-string 8)))
+                                                                                          (length tags)))))))))
+                           )))
+                 (setq error-location (point))))))
     (when error-location
       (goto-char error-location)
       (error "Illegal entry found" ))
-    (insert "Invoice ") (hours-insert-current-date) (insert (format " %s Hours\n" total))))
+    (dolist (tag (plist-keys total))
+      (do-unless (eq nil (cadr (lax-plist-get total tag)))
+        (insert hours-invoice-prefix "Invoice ") (hours-insert-current-date) (insert (format " %s Hours" (cadr (lax-plist-get total tag))) (if (eq tag "")
+                                                                                                                                               ""
+                                                                                                                                             (concat " :" tag ":")) "\n")))))
+
+(defun hours-end-day () (interactive)
+  (let (error-location (bound (point)))
+    (save-excursion
+	  (do-unless
+		  (and (re-search-backward "^[^# \t\n]")
+			   (goto-char (match-beginning 0))
+			   (looking-at (concat hours-date-day " +" (concat hours-time hours-separator-re)))
+			   (goto-char (match-end 0))
+			   (or (hours-insert-current-time) t))
+		(setq error-location (point))))
+	(when error-location
+	  (goto-char error-location)
+	  (error "Illegal entry found" ))))
+
+(defun hours-compute () (interactive)
+  (let (error-location (bound (point)))
+    (save-excursion
+	  (do-unless
+		  (and (re-search-backward "^[^# \t\n]")
+			   (goto-char (match-beginning 0))
+			   (looking-at (concat hours-date-day " +" hours-partial-interval))
+			   (save-match-data (hours-check-day (match-string 1) (match-string 5)))
+			   (goto-char (match-end 0))
+			   (save-match-data (or (insert (format " %s" (/ (float (hours-get-interval (match-string 6) (match-string 7))) 60))) t)))
+		(setq error-location (point))))
+	(when error-location
+	  (goto-char error-location)
+	  (error "Illegal entry found" ))))
 
 (defun hours-date-is-legal-p (date)
   (and date (calendar-date-is-legal-p date)))
@@ -128,8 +203,26 @@
 ;;(calendar-current-date)
 
 (defun hours-insert-current-date () (interactive)
-  (let ((today (calendar-current-date)))
-    (insert (hours-format-date today) " " (calendar-day-name today 3)) " "))
+  (insert (format-time-string "%Y/%m/%d %a ")))
+
+(defun hours-insert-current-time () (interactive)
+  (let* ((mil (diary-entry-time (format-time-string "%H:%M")))
+		 (m (% mil 100))
+		 (r (* (floor (/ (+ (float m) (/ (float hours-round-minutes) 2)) hours-round-minutes)) hours-round-minutes))
+		 (h (% (+ (/ mil 100) (if (>= r 60) 1 0)) 24))
+		 (M (if (>= r 60) (- r 60) r))
+		 (P (if (>= h 12) "pm" "am"))
+		 (H (if (>  h 12) (- h 12) (if (= h 0) 12 h))))
+	(insert (format "%2d:%02d%s" H M P))))
+
+;(defun hours-insert-current-time () (interactive)
+;  (insert (format-time-string "%l:%M%#p")))
+
+(defun hours-insert-current-date-time () (interactive)
+  (insert hours-prefix)
+  (hours-insert-current-date)
+  (hours-insert-current-time)
+  (insert hours-separator))
 
 (defun hours-next-date () 
   (interactive) 
