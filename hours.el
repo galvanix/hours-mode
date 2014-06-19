@@ -3,7 +3,8 @@
 (setq hours-time  "\\<\\([0-9][0-9]?:[0-9][0-9]\\(?:am\\|pm\\)\\)\\>"
       hours-date  "\\<\\(\\(20[0-9][0-9]\\)[-/]\\([0-9][0-9]\\)?[-/]\\([0-9][0-9]?\\)\\)\\>"
       hours-day   "\\<\\(Sun\\|Mon\\|Tue\\|Wed\\|Thu\\|Fri\\|Sat\\)\\>"
-      hours-hours "\\<\\([0-9]+\\(?:\\.[0-9]+\\)?\\)\\>")
+      hours-hours "\\<\\([0-9]+\\(?:\\.[0-9]+\\)?\\)\\>"
+      hours-tags  ":\\([^:]+\\):")
 (setq hours-separator-re " +->? +")
 (setq hours-partial-interval
       (concat hours-time hours-separator-re hours-time))
@@ -17,6 +18,8 @@
 (setq hours-invoice-prefix "")
 (setq hours-separator " - ")
 (setq hours-round-minutes 15)
+(setq hours-possible-tags
+      (concat "\\(?: +" hours-tags "\\)?"))
 
 (defun hours-check-date (date)
   (hours-date-is-legal-p (hours-date-from-string date)))
@@ -52,13 +55,19 @@
          (3 (if (hours-check-interval (match-string 1) (match-string 2) (match-string 3))
                 hours-interval-face
               font-lock-warning-face)))
-        ("^\\(?:[-+]+ *\\)?Invoice\\>\\|\\<Hours *$" . hours-invoice-face)
+        (,(concat "^\\(?:[-+]+ *\\)?\\(Invoice\\>\\).*\\(\\<Hours\\)")
+         (1 hours-invoice-face)
+         (2 hours-invoice-face))
         (,hours-date
          (1 (if (hours-check-date (match-string 0))
                 hours-date-face
               font-lock-warning-face)))
         (,hours-day     . hours-day-face)
-        (,hours-time    . hours-time-face)))
+        (,hours-time    . hours-time-face)
+        (,(concat "\\(?:" hours-interval "\\|" "^\\(?:[-+]+ *\\)?Invoice.* +Hours" "\\)" " +\\(:\\)")
+         (4 font-lock-keyword-face)
+         ("\\([^:,]+\\)\\([,:]\\)" nil nil (1 font-lock-string-face)
+                                           (2 font-lock-keyword-face)))))
 
 (setq hours-font-lock-defaults
       '(hours-font-lock-keywords t nil nil nil (font-lock-multiline . nil)))
@@ -83,27 +92,47 @@
 ;; \\{hours-minor-mode-map}"
 ;;   nil " Hours" nil)
 
+(defun plist-keys (plist)
+  "Return the keys of PLIST that have non-null values, in order."
+  (assert (zerop (mod (length plist) 2)) t)
+  (loop for (key value . rest) on plist by #'cddr
+        unless (or (null value) (memq key accu)) collect key into accu
+        finally (return accu)))
+
 (defun hours-invoice () (interactive)
-  (let ((total 0) error-location (bound (point)) done)
+  (let (total error-location (bound (point)))
     (save-excursion
       (while  ; a line that doesn't start with a space should be an entry
-          (and (not done)
+          (and (or (eq total nil)
+                   (memq 'open (mapcar (lambda (e) (or (stringp e) (car e))) total)))
                (re-search-backward "^[^# \t\n]" nil 'noerror)
                (do-unless
                    (and
                     (goto-char (match-beginning 0))
-                    (cond ((looking-at "^\\(?:[-+]+ *\\)?Invoice\\> .*$")
-                           (setq done t))
-                          ((looking-at (concat "\\(?:[-+]+ +\\)?" hours-date-day " +" hours-interval))
+                    (cond ((looking-at (concat "^\\(?:[-+]+ *\\)?Invoice\\>.*\\<Hours" hours-possible-tags))
+                           (let ((tags (split-string (or (match-string 1) "") ",")))
+                             (dolist (tag tags t)
+                               (if (not (eq 'closed (car (lax-plist-get total tag))))
+                                   (setq total (lax-plist-put total tag (list 'closed (cadr (lax-plist-get total tag)))))))))
+                          ((looking-at (concat "\\(?:[-+]+ +\\)?" hours-date-day " +" hours-interval hours-possible-tags))
                            (save-match-data (hours-check-day (match-string 1) (match-string 5)))
                            (save-match-data (hours-check-interval (match-string 6) (match-string 7) (match-string 8)))
-                           (setq total (+ total (string-to-number (match-string 8))))
+                           (let ((tags (save-match-data (split-string (or (match-string 9) "") ","))))
+                             (dolist (tag tags t)
+                               (if (not (eq 'closed (car (lax-plist-get total tag))))
+                                   (setq total (lax-plist-put total tag (list 'open (+ (or (cadr (lax-plist-get total tag)) 0)
+                                                                                       (/ (float (string-to-number (match-string 8)))
+                                                                                          (length tags)))))))))
                            )))
                  (setq error-location (point))))))
     (when error-location
       (goto-char error-location)
       (error "Illegal entry found" ))
-    (insert hours-invoice-prefix"Invoice ") (hours-insert-current-date) (insert (format " %s Hours\n" total))))
+    (dolist (tag (plist-keys total))
+      (do-unless (eq nil (cadr (lax-plist-get total tag)))
+        (insert hours-invoice-prefix "Invoice ") (hours-insert-current-date) (insert (format " %s Hours" (cadr (lax-plist-get total tag))) (if (eq tag "")
+                                                                                                                                               ""
+                                                                                                                                             (concat " :" tag ":")) "\n")))))
 
 (defun hours-end-day () (interactive)
   (let (error-location (bound (point)))
