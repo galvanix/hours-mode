@@ -54,6 +54,7 @@
 (easy-mmode-defmap hours-mode-map
   `(("\C-cd" . hours-insert-current-date)
     ("\C-ci" . hours-invoice)
+    ("\M-\r" . hours-toggle-entry)
     ("\C-c`" . hours-next-error))
   "Keymap for `hours-mode'.")
 
@@ -168,5 +169,53 @@
   "`hours-mode' face used to highlight complete entries."
   :group 'hours-mode)
 (defvar hours-time-face 'hours-time-face)
+
+;;;; Hours Folding...
+
+(defun hours-fold-entry () (interactive)
+  (let (beg end)
+    (save-excursion
+      (beginning-of-line)
+      (while (and (looking-at "\\s ") (eq (forward-line -1) 0)))
+      (end-of-line)
+      (setq beg (point))
+      (forward-line 1)
+      (while (and (looking-at "\\s \\|$") (eq (forward-line 1) 0)))
+      (backward-char)
+      (setq end (point)))
+    (if (< beg end)
+      (hours-fold-region beg end))))
+
+(defun hours-fold-region (beg end) (interactive "r")
+  (let ((overlay (make-overlay beg end)))
+    (overlay-put overlay 'evaporate t)
+    (overlay-put overlay 'invisible t)
+    (overlay-put overlay 'intangible t)
+    (overlay-put overlay 'hours-fold t)
+    (overlay-put overlay 'before-string "...")))
+
+(defun hours-unfold-region (beg end) (interactive "r")
+  (let ((overlays (overlays-in beg end)) deleted)
+    (while overlays
+      (let ((ovl (car overlays)))
+        (when (overlay-get ovl 'hours-fold)
+          (delete-overlay (setq deleted ovl))))
+      (setq overlays (cdr overlays)))
+    deleted))
+
+(defun hours-unfold-entry () (interactive)
+  (hours-unfold-region (line-beginning-position) (min (1+ (line-end-position)) (point-max))))
+
+(defun hours-toggle-entry () (interactive)
+  (or (hours-unfold-entry) (hours-fold-entry)))
+
+(defun hours-unfold-all () (interactive)
+  (hours-unfold-region (point-min) (point-max)))
+
+(defun hours-fold-all () (interactive)
+  (save-excursion
+    (goto-char (point-min))
+    (while (re-search-forward "^[^\\s \n]")
+      (hours-fold-entry))))
 
 (provide 'hours)
