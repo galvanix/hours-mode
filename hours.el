@@ -5,6 +5,7 @@
       hours-day   "\\<\\(Sun\\|Mon\\|Tue\\|Wed\\|Thu\\|Fri\\|Sat\\)\\>"
       hours-hours "\\<\\([0-9]+\\(?:\\.[0-9]+\\)?\\)\\>"
       hours-tags  ":\\([^:]+\\):")
+(setq hours-separator " - ")
 (setq hours-separator-re " +- +")
 (setq hours-partial-interval
       (concat hours-time hours-separator-re hours-time))
@@ -16,7 +17,6 @@
       (concat "\\(^\\(?:Invoice +\\)?" hours-date "\\)"))
 (setq hours-prefix "")
 (setq hours-invoice-prefix "")
-(setq hours-separator " - ")
 (setq hours-round-minutes 15)
 (setq hours-possible-tags
       (concat "\\(?: +" hours-tags "\\)?"))
