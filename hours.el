@@ -165,7 +165,7 @@
 	  (error "Illegal entry found" ))))
 
 (defun hours-date-is-legal-p (date)
-  (and date (calendar-date-is-legal-p date)))
+  (and date (calendar-date-is-valid-p date)))
 
 (require 'diary-lib)
 (defun hours-time-in-minutes (string)
