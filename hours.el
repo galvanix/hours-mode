@@ -55,9 +55,10 @@
          (3 (if (hours-check-interval (match-string 1) (match-string 2) (match-string 3))
                 hours-interval-face
               font-lock-warning-face)))
-        (,(concat "^\\(Invoice\\>\\).*\\(\\<Hours\\)")
+        (,(concat "^\\(Invoice\\>\\).*\\(\\<Hours\\).*\\(\\<Days\\)")
          (1 hours-invoice-face)
-         (2 hours-invoice-face))
+         (2 hours-invoice-face)
+         (3 hours-invoice-face))
         (,hours-date
          (1 (if (hours-check-date (match-string 0))
                 hours-date-face
@@ -114,16 +115,23 @@
                            (let ((tags (split-string (or (match-string 1) "") ",")))
                              (dolist (tag tags t)
                                (if (not (eq 'closed (car (lax-plist-get total tag))))
-                                   (setq total (lax-plist-put total tag (list 'closed (cadr (lax-plist-get total tag)))))))))
+                                   (setq total (lax-plist-put total tag (list 'closed
+                                                                              (cadr (lax-plist-get total tag))
+                                                                              (caddr (lax-plist-get total tag)))))))))
                           ((looking-at (concat hours-date-day " +" hours-interval hours-possible-tags))
                            (save-match-data (hours-check-day (match-string 1) (match-string 5)))
                            (save-match-data (hours-check-interval (match-string 6) (match-string 7) (match-string 8)))
                            (let ((tags (save-match-data (split-string (or (match-string 9) "") ","))))
                              (dolist (tag tags t)
                                (if (not (eq 'closed (car (lax-plist-get total tag))))
-                                   (setq total (lax-plist-put total tag (list 'open (+ (or (cadr (lax-plist-get total tag)) 0)
-                                                                                       (/ (float (string-to-number (match-string 8)))
-                                                                                          (length tags)))))))))
+                                   (setq total (lax-plist-put total tag (list 'open
+                                                                              (+ (or (cadr (lax-plist-get total tag)) 0)
+                                                                                 (/ (float (string-to-number (match-string 8)))
+                                                                                    (length tags)))
+                                                                              (+ (or (caddr (lax-plist-get total tag)) 0)
+                                                                                 (/ 1.0
+                                                                                    (length tags)))
+                                                                              ))))))
                            )))
                  (setq error-location (point))))))
     (when error-location
@@ -131,9 +139,12 @@
       (error "Illegal entry found" ))
     (dolist (tag (plist-keys total))
       (do-unless (eq nil (cadr (lax-plist-get total tag)))
-        (insert hours-invoice-prefix "Invoice ") (hours-insert-current-date) (insert (format " %s Hours" (cadr (lax-plist-get total tag))) (if (eq tag "")
-                                                                                                                                               ""
-                                                                                                                                             (concat " :" tag ":")) "\n")))))
+        (insert hours-invoice-prefix "Invoice ") (hours-insert-current-date) (insert (format " %s Hours on %d Days"
+                                                                                             (cadr (lax-plist-get total tag))
+                                                                                             (caddr (lax-plist-get total tag)))
+                                                                                     (if (eq tag "")
+                                                                                         ""
+                                                                                       (concat " :" tag ":")) "\n")))))
 
 (defun hours-end-day () (interactive)
   (let (error-location (bound (point)))
